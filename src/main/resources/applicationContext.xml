@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:aop="http://www.springframework.org/schema/aop"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+    http://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/context
+    http://www.springframework.org/schema/context/spring-context.xsd
+    http://www.springframework.org/schema/aop
+    http://www.springframework.org/schema/aop/spring-aop.xsd
+    http://www.springframework.org/schema/tx 
+    http://www.springframework.org/schema/tx/spring-tx.xsd">
+
+    <!-- 扫描service、dao -->
+    <context:component-scan base-package="com.Blog" >
+        <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+    </context:component-scan>
+
+    <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="locations">
+            <list>
+                <value>classpath:jdbc.properties</value>
+                <value>classpath:redis-config.properties</value>
+            </list>
+        </property>
+    </bean>
+    <!-- 引入同文件夹下的redis属性配置文件 -->
+    <import resource="spring-redis.xml"/>
+
+    <!-- 主库 -->
+    <bean name="master-dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+          init-method="init" destroy-method="close">
+        <property name="url" value="${master_driverUrl}"/>
+        <property name="username" value="${master_username}"/>
+        <property name="password" value="${master_password}"/>
+        <property name="initialSize" value="5"/>
+        <property name="maxActive" value="100"/>
+        <property name="minIdle" value="10"/>
+        <property name="maxWait" value="60000"/>
+        <property name="validationQuery" value="SELECT 'x'"/>
+        <property name="testOnBorrow" value="true"/>
+        <property name="testOnReturn" value="true"/>
+        <property name="testWhileIdle" value="true"/>
+        <property name="timeBetweenEvictionRunsMillis" value="60000"/>
+        <property name="minEvictableIdleTimeMillis" value="300000"/>
+        <property name="removeAbandoned" value="true"/>
+        <property name="removeAbandonedTimeout" value="1800"/>
+        <property name="logAbandoned" value="true"/>
+        <property name="filters" value="mergeStat"/>
+    </bean>
+<!--     第二数据源   此处不需要
+    <bean name="cc-dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+          init-method="init" destroy-method="close">
+        <property name="url" value="${cc_driverUrl}"/>
+        <property name="username" value="${cc_username}"/>
+        <property name="password" value="${cc_password}"/>
+        <property name="initialSize" value="5"/>
+        <property name="maxActive" value="100"/>
+        <property name="minIdle" value="10"/>
+        <property name="maxWait" value="60000"/>
+        <property name="validationQuery" value="SELECT 'x'"/>
+        <property name="testOnBorrow" value="true"/>
+        <property name="testOnReturn" value="true"/>
+        <property name="testWhileIdle" value="true"/>
+        <property name="timeBetweenEvictionRunsMillis" value="60000"/>
+        <property name="minEvictableIdleTimeMillis" value="300000"/>
+        <property name="removeAbandoned" value="true"/>
+        <property name="removeAbandonedTimeout" value="1800"/>
+        <property name="logAbandoned" value="true"/>
+        <property name="filters" value="mergeStat"/>
+    </bean> -->
+
+    <bean id="dataSource" class="com.Blog.utils.dataSources.DynamicDataSource">
+        <property name="targetDataSources">
+            <map key-type="java.lang.String">
+                <entry value-ref="master-dataSource" key="bankManagerDataSource"></entry>
+                <!-- <entry value-ref="cc-dataSource" key="serviceManagerDataSource"></entry> -->
+            </map>
+        </property>
+        <property name="defaultTargetDataSource" ref="master-dataSource"></property>
+     </bean>
+
+    <!-- myBatis文件 -->
+	<bean id="sqlSessionFactory" class="com.ext_ext.mybatisext.SqlSessionFactoryBeanExt">
+		<property name="dataSource" ref="dataSource" />
+		<property name="typeAliasesPackage" value="com.Blog.model" />
+		<!-- 自动扫描entity目录, 省掉Configuration.xml里的手工配置 -->
+		<property name="mapperLocations" value="classpath:sqlMapperXml/*.xml" />
+		<!-- 拦截器配置 -->
+		<property name="interceptors">
+			<list>
+				<bean class="com.ext_ext.mybatisext.interceptor.GenericMapperInterceptor" />
+				<bean class="com.ext_ext.mybatisext.interceptor.CommonMapperInterceptor" />
+			</list>
+		</property>
+		<!-- ext plugin配置 -->
+		<property name="plugins">
+			<list>
+				<bean class="com.ext_ext.mybatisext.plugin.SQLPrintPlugin" />
+				<bean class="com.ext_ext.mybatisext.plugin.IndexingPlugin" />
+				<bean class="com.ext_ext.mybatisext.plugin.paging.PagingPlugin">
+					<property name="dialect"> <bean class="com.ext_ext.mybatisext.activerecord.dialect.impl.MysqlDialect" /> </property>
+				</bean>
+				<bean class="com.ext_ext.mybatisext.plugin.IdentityPlugin" />
+				<bean class="com.ext_ext.mybatisext.plugin.BatchPlugin" />
+			</list>
+		</property>
+	</bean>
+
+    <!-- 自动扫描 将Mapper接口生成代理注入到Spring -->
+    <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+        <property name="basePackage" value="com.Blog.mapper" />
+        <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory" />
+    </bean>
+
+    <!-- 事务管理 -->
+    <bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="dataSource"></property>
+    </bean>
+
+    <!-- 事务管理 属性 -->
+    <tx:advice id="transactionAdvice" transaction-manager="transactionManager">
+        <tx:attributes>
+            <tx:method name="find*" propagation="REQUIRED" read-only="true"/>
+            <tx:method name="get*" propagation="REQUIRED" read-only="true"/>
+            <tx:method name="add*" propagation="REQUIRED"/>
+            <tx:method name="save*" propagation="REQUIRED"/>
+            <tx:method name="insert*" propagation="REQUIRED"/>
+            <tx:method name="update*" propagation="REQUIRED"/>
+            <tx:method name="edit*" propagation="REQUIRED"/>
+            <tx:method name="delete*" propagation="REQUIRED"/>
+        </tx:attributes>
+    </tx:advice>
+
+    <bean id="dataSourceExchange" class="com.Blog.utils.dataSources.DataSourceAspect"/>
+
+    <!-- 配置切面 -->
+    <aop:config>
+        <aop:pointcut id="transactionPointCut" expression="execution(* com.Blog.service.*.*(..))" />
+        <aop:advisor advice-ref="transactionAdvice" pointcut-ref="transactionPointCut" order="2"/>
+        <aop:advisor advice-ref="dataSourceExchange" pointcut-ref="transactionPointCut" order="1"/>
+    </aop:config>
+    
+    <!-- 开启事务注解，标注@Transactional的类和方法将具有事务性 此处不需要  上文已配置标签式事物配置
+	<tx:annotation-driven transaction-manager="txManager" /> -->
+</beans>
