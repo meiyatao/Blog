@@ -25,6 +25,7 @@ public class LoginController extends BaseController {
 	@SystemControllerLog(description = "初试")
     @RequestMapping(value = "/", method = RequestMethod.GET)
     public String home(HttpServletRequest request) {
+		
         log.info("进入主页！");
         request.getSession().setAttribute("message", "");
         return "home";
